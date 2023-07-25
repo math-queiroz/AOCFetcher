@@ -93,7 +93,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         let document = scraper::Html::parse_document(&prompt_response_text);
         let selector = &scraper::Selector::parse("article")?;
         let articles = document.select(selector);
-        let prompt_text = articles.map(|a| a.inner_html()).collect::<Vec<String>>().join("\n\n");
+        let prompt_text = articles.map(|a| a.inner_html()).collect::<Vec<String>>().join("\n");
         std::fs::write(prompt_path, prompt_text)?;
 
         let input_path = format!("{}/{:0>2}.{}", &path, day, extension);
