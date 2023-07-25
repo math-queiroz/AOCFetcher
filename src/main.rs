@@ -1,9 +1,12 @@
 use std::time::Duration;
 use std::error::Error;
 use std::path::Path;
+use std::io::Write;
 use std::thread;
-use reqwest::header::{ HeaderValue, HeaderMap, COOKIE };
+use exitcode;
 use reqwest;
+use reqwest::header::{ HeaderValue, HeaderMap, COOKIE };
+use scraper;
 use toml;
 
 /// The default configuration .toml file contents
@@ -17,13 +20,11 @@ const REQUEST_DELAY: Duration = Duration::from_millis(500);
 /// if unable to read from the file, tries to create it, and if the method
 /// also fails to create a file, it throws a warn and load defaults from memory
 fn include_config() -> Result<toml::Table, Box <dyn Error>> {
-    dbg!("Importing Fetch.toml file");
     match use_config() {
         Ok(config) => return Ok(config),
         Err(error) => {
-            dbg!("Could find Fetch.toml file, trying to create it. {}", error);
-            try_create_config_file();
-            return use_config();
+            if try_create_config_file() { return use_config(); }
+            else { return Err(error) }
         }
     }
 }
@@ -41,7 +42,7 @@ fn try_create_config_file() -> bool {
     return did_create;
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn run() -> Result<(), Box<dyn Error>> {
     // Import config
     let config_file = include_config()?;
     let config = config_file.get("configuration").expect("No configuration in Fetch.toml file");
@@ -49,7 +50,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Segregate config values
     let year = config
         .get("year").expect("No year defined on Fetch.toml")
-        .as_str().expect("Bad year definition on Fetch.toml");
+        .as_integer().expect("Bad year definition on Fetch.toml").to_string();
     let path = config
         .get("path").expect("No path defined on Fetch.toml")
         .as_str().expect("Bad path definition on Fetch.toml");
@@ -59,6 +60,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let session = config
         .get("session").expect("No session was found on config file Fetch.toml")
         .as_str().expect("Bad cookies definition on Fetch.toml");
+
+    // Check if session cookie existst
+    if session.is_empty() { Err("No session cookie in Fetch.toml file!")? };
     
     // Default session header
     let mut default_headers = HeaderMap::new();
@@ -70,33 +74,58 @@ fn main() -> Result<(), Box<dyn Error>> {
         .default_headers(default_headers)
         .build()?;
 
+    // Check or create dirs
+    if !Path::new(path).exists() { std::fs::create_dir(&path)?; };
+    let prompt_dir = format!("{}/prompt", path);
+    if !Path::new(&prompt_dir).exists() { std::fs::create_dir(&prompt_dir)?; };
+
     // Days loop
     for day in (1..26).map(|n| n.to_string()) {
-        println!("Fetching day {}...", day);
+        print!("Fetching day {}... ", day);
+        std::io::stdout().flush()?;
 
+        let prompt_path = format!("{}/prompt/{:0>2}.md", &path, day);
         let prompt_url = format!("https://adventofcode.com/{}/day/{}", year, day).parse::<reqwest::Url>()?;
-        let input_url  = format!("https://adventofcode.com/{}/day/{}/input", year, day).parse::<reqwest::Url>()?;
-
-        thread::sleep(REQUEST_DELAY);
-        let input_response = client.get(input_url).send()?;
-        if !input_response.status().is_success() { panic!("{:?}", &input_response); }; 
-        let input_response_text = input_response.text()?;
-        let input_path = format!("{}/{}.{}", &path, day, extension);
-
         thread::sleep(REQUEST_DELAY);
         let prompt_response = client.get(prompt_url).send()?;
-        if !prompt_response.status().is_success() { panic!("{:?}", &prompt_response); }; 
+        if !prompt_response.status().is_success() { Err("Unexpected error while fetching prompt")? }; 
         let prompt_response_text = prompt_response.text()?;
-        let prompt_path = format!("{}/prompt/{}.{}", &path, day, extension);
+        let document = scraper::Html::parse_document(&prompt_response_text);
+        let selector = &scraper::Selector::parse("article")?;
+        let articles = document.select(selector);
+        let prompt_text = articles.map(|a| a.inner_html()).collect::<Vec<String>>().join("\n\n");
+        std::fs::write(prompt_path, prompt_text)?;
 
-        if !Path::new(path).exists() { std::fs::create_dir(&path)?; };
+        let input_path = format!("{}/{:0>2}.{}", &path, day, extension);
+        let input_exists = Path::new(&input_path).exists();  
+        if !input_exists {
+            let input_url  = format!("https://adventofcode.com/{}/day/{}/input", year, day).parse::<reqwest::Url>()?;
+            thread::sleep(REQUEST_DELAY);
+            let input_response = client.get(input_url).send()?;
+            if !input_response.status().is_success() { Err("Unexpected error while fetching input (maybe check your session cookie?)")? }; 
+            let input_response_text = input_response.text()?;
+            std::fs::write(input_path, input_response_text)?;
+        }
 
-        let prompt_dir = format!("{}/prompt", path);
-        if !Path::new(&prompt_dir).exists() { std::fs::create_dir(&prompt_dir)?; };
-
-        std::fs::write(input_path, input_response_text)?;
-        std::fs::write(prompt_path, prompt_response_text)?;
+        match input_exists {
+            false => println!("Done!"),
+            true  => println!("Skipped existent input, Done!"),
+        }
     }
 
     return Ok(());
+}
+
+fn main() {
+    println!("Running aoc input fetcher");
+    match run() {
+        Ok(()) => {
+            println!("Finished fetching files!");
+            std::process::exit(exitcode::OK);
+        },
+        Err(error) => {
+            eprintln!("Unexpected error! {}", error);
+            std::process::exit(exitcode::DATAERR)
+        }
+    }
 }
