@@ -1,0 +1,12 @@
+[package]
+name = "aocfetcher"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest = { version = "0.11.18", features = ["blocking", "cookies"] }
+scraper = "0.17.1"
+toml = "0.7.6"
+
