@@ -1,8 +1,10 @@
+use std::fs::read_to_string;
 use std::time::Duration;
 use std::error::Error;
 use std::path::Path;
 use std::io::Write;
 use std::thread;
+use std::env;
 use exitcode;
 use reqwest;
 use reqwest::header::{ HeaderValue, HeaderMap, COOKIE };
@@ -42,7 +44,7 @@ fn try_create_config_file() -> bool {
     return did_create;
 }
 
-fn run() -> Result<(), Box<dyn Error>> {
+fn run(day: Option<&String>) -> Result<(), Box<dyn Error>> {
     // Import config
     let config_file = include_config()?;
     let config = config_file.get("configuration").expect("No configuration in Fetch.toml file");
@@ -80,21 +82,28 @@ fn run() -> Result<(), Box<dyn Error>> {
     if !Path::new(&prompt_dir).exists() { std::fs::create_dir(&prompt_dir)?; };
 
     // Days loop
-    for day in (1..26).map(|n| n.to_string()) {
+    let days = match day {
+        Some(day) => vec![day.clone()],
+        None => (1..26).map(|d| d.to_string()).collect::<Vec<String>>(),
+    };
+    for day in days {
         print!("Fetching day {}... ", day);
         std::io::stdout().flush()?;
 
         let prompt_path = format!("{}/prompt/{:0>2}.md", &path, day);
-        let prompt_url = format!("https://adventofcode.com/{}/day/{}", year, day).parse::<reqwest::Url>()?;
-        thread::sleep(REQUEST_DELAY);
-        let prompt_response = client.get(prompt_url).send()?;
-        if !prompt_response.status().is_success() { Err("Unexpected error while fetching prompt")? }; 
-        let prompt_response_text = prompt_response.text()?;
-        let document = scraper::Html::parse_document(&prompt_response_text);
-        let selector = &scraper::Selector::parse("article")?;
-        let articles = document.select(selector);
-        let prompt_text = articles.map(|a| a.inner_html()).collect::<Vec<String>>().join("\n");
-        std::fs::write(prompt_path, prompt_text)?;
+        let prompt_exists = Path::new(&prompt_path).exists() && read_to_string(&prompt_path).is_ok_and(|f| f.find("id=\"part2\"").is_some());
+        if !prompt_exists {
+            let prompt_url = format!("https://adventofcode.com/{}/day/{}", year, day).parse::<reqwest::Url>()?;
+            thread::sleep(REQUEST_DELAY);
+            let prompt_response = client.get(prompt_url).send()?;
+            if !prompt_response.status().is_success() { Err("Unexpected error while fetching prompt")? }; 
+            let prompt_response_text = prompt_response.text()?;
+            let document = scraper::Html::parse_document(&prompt_response_text);
+            let selector = &scraper::Selector::parse("article")?;
+            let articles = document.select(selector);
+            let prompt_text = articles.map(|a| a.inner_html()).collect::<Vec<String>>().join("\n");
+            std::fs::write(prompt_path, prompt_text)?;
+        }
 
         let input_path = format!("{}/{:0>2}.{}", &path, day, extension);
         let input_exists = Path::new(&input_path).exists();  
@@ -107,9 +116,11 @@ fn run() -> Result<(), Box<dyn Error>> {
             std::fs::write(input_path, input_response_text)?;
         }
 
-        match input_exists {
-            false => println!("Done!"),
-            true  => println!("Skipped existent input, Done!"),
+        match (prompt_exists, input_exists) {
+            (false, false) => println!("Done!"),
+            (true, false)  => println!("Skipped existent prompt , Done!"),
+            (false, true)  => println!("Skipped existent input, Done!"),
+            (true, true)  => println!("Skipped existent prompt and input, Done!"),
         }
     }
 
@@ -117,8 +128,10 @@ fn run() -> Result<(), Box<dyn Error>> {
 }
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    let day = args.get(1);
     println!("Running aoc input fetcher");
-    match run() {
+    match run(day) {
         Ok(()) => {
             println!("Finished fetching files!");
             std::process::exit(exitcode::OK);
