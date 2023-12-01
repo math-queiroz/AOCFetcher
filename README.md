@@ -17,7 +17,7 @@ A simple executable written in [Rust](https://www.rust-lang.org/en-US/tools/inst
 ## Usage
 Although intended for personal use, If for any reason you decide to use this, it should be simple
 * Download the source code and build it with `cargo build --release`
-* Get the binary from traget/release/fetch and run it to generate a Fetch.toml file
+* Get the binary from `./traget/release/fetch` and run it to generate a Fetch.toml file
 * [Get your session cookie](https://github.com/wimglenn/advent-of-code-wim/issues/1) and define it on the Fetch.toml
   * Also remember to set the proper year on the configuration file
 * Run it, and the contents will be downloaded to `./input` directory by default
