@@ -91,7 +91,7 @@ fn run(day: Option<&String>) -> Result<(), Box<dyn Error>> {
         std::io::stdout().flush()?;
 
         let prompt_path = format!("{}/prompt/{:0>2}.md", &path, day);
-        let prompt_exists = Path::new(&prompt_path).exists() && read_to_string(&prompt_path).is_ok_and(|f| f.find("id=\"part2\"").is_some());
+        let prompt_exists = Path::new(&prompt_path).exists() && read_to_string(&prompt_path).map(|f| f.find("id=\"part2\"")).is_ok();
         if !prompt_exists {
             let prompt_url = format!("https://adventofcode.com/{}/day/{}", year, day).parse::<reqwest::Url>()?;
             thread::sleep(REQUEST_DELAY);
